@@ -1,20 +1,6 @@
 # -*- coding: utf-8 -*-
 
 """
- A baseline authorship attribution method 
- based on a character n-gram representation
- and a linear SVM classifier.
- It has a reject option to leave documents unattributed
- (when the probabilities of the two most likely training classes are too close)
- 
- Questions/comments: stamatatos@aegean.gr
-
- It can be applied to datasets of PAN-19 cross-domain authorship attribution task
- See details here: http://pan.webis.de/clef19/pan19-web/author-identification.html
- Dependencies:
- - Python 2.7 or 3.6 (we recommend the Anaconda Python distribution)
- - scikit-learn
-
  Usage from command line: 
     > python pan19-cdaa-baseline.py -i EVALUATION-DIRECTORY -o OUTPUT-DIRECTORY [-n N-GRAM-ORDER] [-ft FREQUENCY-THRESHOLD] [-pt PROBABILITY-THRESHOLD]
  EVALUATION-DIRECTORY (str) is the main folder of a PAN-19 collection of attribution problems
@@ -42,8 +28,11 @@ from sklearn.multiclass import OneVsRestClassifier
 from sklearn.feature_extraction.text import CountVectorizer
 from sklearn import preprocessing
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.decomposition import PCA
 
 def represent_text(text,n):
+	# Potentially some regex to convert digits
+
     # Extracts all character 'n'-grams from  a 'text'
     if n>0:
         tokens = [text[i:i+n] for i in range(len(text)-n+1)]
@@ -62,7 +51,7 @@ def read_files(path,label):
         f.close()
     return texts
 
-def extract_vocabulary(texts,n,ft):
+def extract_vocabulary(texts,n,ft=3):
     # Extracts all characer 'n'-grams occurring at least 'ft' times in a set of 'texts'
     occurrences=defaultdict(int)
     for (text,label) in texts:
@@ -78,7 +67,7 @@ def extract_vocabulary(texts,n,ft):
             vocabulary.append(i)
     return vocabulary
 
-def baseline(path,outpath,n=3,ft=5,pt=0.1):
+def baseline(path,outpath,n_range=3,pt=0.1, lowercase=False):
     start_time = time.time()
     # Reading information about the collection
     infocollection = path+os.sep+'collection-info.json'
@@ -88,9 +77,11 @@ def baseline(path,outpath,n=3,ft=5,pt=0.1):
         for attrib in json.load(f):
             problems.append(attrib['problem-name'])
             language.append(attrib['language'])
+
     for index,problem in enumerate(problems):
         print(problem)
-        # Reading information about the problem
+        
+		# Reading information about the problem
         infoproblem = path+os.sep+problem+os.sep+'problem-info.json'
         candidates = []
         with open(infoproblem, 'r') as f:
@@ -98,39 +89,72 @@ def baseline(path,outpath,n=3,ft=5,pt=0.1):
             unk_folder = fj['unknown-folder']
             for attrib in fj['candidate-authors']:
                 candidates.append(attrib['author-name'])
-        # Building training set
+        
+		# Building training set
         train_docs=[]
         for candidate in candidates:
             train_docs.extend(read_files(path+os.sep+problem,candidate))
         train_texts = [text for i,(text,label) in enumerate(train_docs)]
         train_labels = [label for i,(text,label) in enumerate(train_docs)]
-        vocabulary = extract_vocabulary(train_docs,n,ft)
-        vectorizer = CountVectorizer(analyzer='char',ngram_range=(n,n),lowercase=False,vocabulary=vocabulary)
-        train_data = vectorizer.fit_transform(train_texts)
+			
+			# Builds the vocabulary for all n-Grams in between [2, n_range]
+			# It discards n-Grams that do not occur frequently enough 
+		vocabulary = []
+		for n in range(2, n_range + 1):
+			vocab = extract_vocabulary(train_docs, n_range-n+1)
+			vocabulary.extend(vocab)
+		
+			# Creates the BoW
+		vectorizer = CountVectorizer(analyzer='char',ngram_range=(2,n_range),lowercase=lowercase,vocabulary=vocabulary)
+		train_data = vectorizer.fit_transform(train_texts)
         train_data = train_data.astype(float)
+			
+			# TF-IDF
+
+			# Reduce the data to x Principal Components
+		pca = PCA(n_components = 200)
+		#train_data = pca.fit_transform(train_data)
+			
+			# Prints out statistics about each training text
         for i,v in enumerate(train_texts):
             train_data[i]=train_data[i]/len(train_texts[i])
         print('\t', 'language: ', language[index])
         print('\t', len(candidates), 'candidate authors')
         print('\t', len(train_texts), 'known texts')
         print('\t', 'vocabulary size:', len(vocabulary))
-        # Building test set
+        
+		# Building test set
         test_docs=read_files(path+os.sep+problem,unk_folder)
         test_texts = [text for i,(text,label) in enumerate(test_docs)]
-        test_data = vectorizer.transform(test_texts)
+        
+		test_data = vectorizer.transform(test_texts)
         test_data = test_data.astype(float)
+			
+			#TF_IDF
+			
+			#again pca
+		#test_data = pca.transform(test_data)
+
+
+			# Prints out the nr of test texts
         for i,v in enumerate(test_texts):
             test_data[i]=test_data[i]/len(test_texts[i])
         print('\t', len(test_texts), 'unknown texts')
-        # Applying SVM
-        max_abs_scaler = preprocessing.MaxAbsScaler()
+        
+		# preprocessing 
+		max_abs_scaler = preprocessing.MaxAbsScaler()
         scaled_train_data = max_abs_scaler.fit_transform(train_data)
         scaled_test_data = max_abs_scaler.transform(test_data)
+
+
+		# Applying SVM     # Maybe change to ensemble logistic classifier
+        
         clf=CalibratedClassifierCV(OneVsRestClassifier(SVC(C=1)))
         clf.fit(scaled_train_data, train_labels)
         predictions=clf.predict(scaled_test_data)
         proba=clf.predict_proba(scaled_test_data)
-        # Reject option (used in open-set cases)
+        
+		# Reject option (used in open-set cases)
         count=0
         for i,p in enumerate(predictions):
             sproba=sorted(proba[i],reverse=True)
@@ -138,7 +162,9 @@ def baseline(path,outpath,n=3,ft=5,pt=0.1):
                 predictions[i]=u'<UNK>'
                 count=count+1
         print('\t',count,'texts left unattributed')
-        # Saving output data
+        
+		
+		# Saving output data
         out_data=[]
         unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
         pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
@@ -149,13 +175,18 @@ def baseline(path,outpath,n=3,ft=5,pt=0.1):
         print('\t', 'answers saved to file','answers-'+problem+'.json')
     print('elapsed time:', time.time() - start_time)
 
+
+
+
+collection_folder = 'cross-domain-authorship-attribution-train'
+output_folder = 'answers_gordon'
+
 def main():
     parser = argparse.ArgumentParser()
     parser = argparse.ArgumentParser(description='PAN-19 Baseline Authorship Attribution Method')
     parser.add_argument('-i', type=str, help='Path to the main folder of a collection of attribution problems')
     parser.add_argument('-o', type=str, help='Path to an output folder')
     parser.add_argument('-n', type=int, default=3, help='n-gram order (default=3)')
-    parser.add_argument('-ft', type=int, default=5, help='frequency threshold (default=5)')
     parser.add_argument('-pt', type=float, default=0.1, help='probability threshold for the reject option (default=0.1')
     args = parser.parse_args()
     if not args.i:
@@ -166,6 +197,7 @@ def main():
         parser.exit(1)
     
     baseline(args.i, args.o, args.n, args.ft, args.pt)
+	baseline(collection_folder, )
 
 if __name__ == '__main__':
     main()
