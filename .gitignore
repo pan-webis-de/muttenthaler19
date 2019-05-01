@@ -1,2 +1,9 @@
 
 .ipynb_checkpoints/AuthorshipAttribution-checkpoint.ipynb
+answers/answers-problem00001.json
+answers/answers-problem00002.json
+answers/answers-problem00003.json
+answers/answers-problem00004.json
+answers/answers-problem00005.json
+*.json
+evaluation/evaluation.prototext
