@@ -1,0 +1,17 @@
+
+
+/*   { "problem-name": "problem00006", "language": "fr", "encoding": "UTF-8" },
+   { "problem-name": "problem00007", "language": "fr", "encoding": "UTF-8" },
+   { "problem-name": "problem00008", "language": "fr", "encoding": "UTF-8" },
+   { "problem-name": "problem00009", "language": "fr", "encoding": "UTF-8" },
+   { "problem-name": "problem00010", "language": "fr", "encoding": "UTF-8" },
+   { "problem-name": "problem00011", "language": "it", "encoding": "UTF-8" },
+   { "problem-name": "problem00012", "language": "it", "encoding": "UTF-8" },
+   { "problem-name": "problem00013", "language": "it", "encoding": "UTF-8" },
+   { "problem-name": "problem00014", "language": "it", "encoding": "UTF-8" },
+   { "problem-name": "problem00015", "language": "it", "encoding": "UTF-8" },
+   { "problem-name": "problem00016", "language": "sp", "encoding": "UTF-8" },
+   { "problem-name": "problem00017", "language": "sp", "encoding": "UTF-8" },
+   { "problem-name": "problem00018", "language": "sp", "encoding": "UTF-8" },
+   { "problem-name": "problem00019", "language": "sp", "encoding": "UTF-8" },
+   { "problem-name": "problem00020", "language": "sp", "encoding": "UTF-8" }*/
