@@ -289,7 +289,31 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         scaled_test_data_char = max_abs_scaler.transform(test_data_char_std)
         
         
-        # LSA 
+        # PCA
+        
+        pca = PCA(n_components = 63)
+        
+            # Word
+        scaled_train_data_word = train_data_word - np.mean(train_data_word, axis=0)
+        scaled_test_data_word = test_data_word - np.mean(train_data_word, axis=0)
+        
+        scaled_train_data_word = pca.fit_transform(scaled_train_data_word)
+        scaled_test_data_word = pca.transform(scaled_test_data_word)
+        
+            # Dist
+        scaled_train_data_dist = train_data_char_dist - np.mean(train_data_char_dist, axis=0)
+        scaled_test_data_dist = test_data_char_dist - np.mean(train_data_char_dist, axis=0)
+        
+        scaled_train_data_dist = pca.fit_transform(scaled_train_data_dist)
+        scaled_test_data_dist = pca.transform(scaled_test_data_dist)
+        
+            # Char
+        scaled_train_data_char = train_data_char_std - np.mean(train_data_char_std, axis=0)
+        scaled_test_data_char = test_data_char_std - np.mean(train_data_char_std, axis=0)
+        
+        scaled_train_data_char = pca.fit_transform(scaled_train_data_char)
+        scaled_test_data_char = pca.transform(scaled_test_data_char)
+        
         
         #svd = TruncatedSVD(n_components = 63, algorithm = 'randomized', random_state = 42)
         #scaled_train_data = svd.fit_transform(scaled_train_data)
@@ -326,7 +350,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
             
                   
                 
-        ensemble = LogisticRegression(random_state=0, solver='lbfgs', multi_class = 'multinomial', max_iter = 300)
+        ensemble = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class = 'multinomial', max_iter = 300),cv = 5)
         ensemble_train = np.concatenate((
                 word.predict_proba(scaled_train_data_word), 
                 dist.predict_proba(scaled_train_data_dist),
@@ -386,7 +410,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         out_data=[]
         unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
         pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
-        for i,v in enumerate(preds_word):
+        for i,v in enumerate(preds_dist):
             out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
         with open('dist'+os.sep+'answers-'+problem+'.json', 'w') as f:
             json.dump(out_data, f, indent=4)
@@ -395,7 +419,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         out_data=[]
         unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
         pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
-        for i,v in enumerate(preds_word):
+        for i,v in enumerate(preds_char):
             out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
         with open('char'+os.sep+'answers-'+problem+'.json', 'w') as f:
             json.dump(out_data, f, indent=4)
