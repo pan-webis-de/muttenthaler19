@@ -34,13 +34,13 @@ from sklearn import preprocessing
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.linear_model import LogisticRegression
-
+from sklearn.preprocessing import normalize, StandardScaler
 from pan19_cdaa_evaluator import evaluate_all
 
 
 
 collection_folder = 'cross-domain-authorship-attribution-train'
-output_folder = 'answers_gordon'
+output_folder = 'answers'
 evaluation_folder = 'evaluation'
 
 
@@ -58,11 +58,10 @@ def read_files(path,label):
 def regex(string: str, model: str):
     """
     Function that computes regular expressions.
-        All digits are set to 0s.
-        All hyper links are simply replaced by the @ symbol
     """
-    string = re.sub("[0-9]", "0", string)
+    string = re.sub("[0-9]", "0", string) # each digit will be represented as a 0
     string = re.sub(r'( \n| \t)+', '', string)
+    #text = re.sub("[0-9]+(([.,^])[0-9]+)?", "#", text)
     string = re.sub("https:\\\+([a-zA-Z0-9.]+)?", "@", string)
     
     if model == 'word':
@@ -94,12 +93,12 @@ def represent_text(text, n: int, model: str):
     Each hyperlink is replaced by an @ sign.
     The latter steps are computed through regular expressions.
     """ 
-    if model == 'char-std':
+    if model == 'char-std' or model == 'char-dist':
 
         text = regex(text, model)
         tokens = [text[i:i+n] for i in range(len(text)-n+1)] 
 
-        if n == 2:
+        if n == 2 and model == 'char-std':
             # create list of unigrams that only consists of punctuation marks
             # and extend tokens by that list
             punct_unigrams = [token for token in text if not token.isalnum()]
@@ -109,12 +108,7 @@ def represent_text(text, n: int, model: str):
         text = [regex(word, model) for word in text.split() if regex(word, model)]
         tokens = [' '.join(text[i:i+n]) for i in range(len(text)-n+1)]
 
-    else:
-        text = regex(text, model)
-        tokens = tokens = [text[i:i+n] for i in range(len(text)-n+1)]
-    
     freq = frequency(tokens)
-
     return freq
 
 def extract_vocabulary(texts: list, n: int, ft: int, model: str):
@@ -137,23 +131,24 @@ def extract_vocabulary(texts: list, n: int, ft: int, model: str):
     vocabulary=[]
     for i in occurrences.keys():
         if occurrences[i] >= ft:
-            vocabulary.append(i)
-            
+            vocabulary.append(i)         
     return vocabulary
 
 def extend_vocabulary(n_tuple: tuple, texts: list, model: str):
     n_start, n_range = n_tuple
-    
     vocab = []
     for n in range(n_start, n_range + 1):
         n_vocab = extract_vocabulary(texts, n, (n_range - n) + 1, model)
         vocab.extend(n_vocab)
     return vocab
 
-def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_best_factor = 0.3, pt=0.1, use_PCA = False, lower=False):
+def pipeline(path,
+             word_range: tuple, dist_range: tuple, char_range: tuple,
+             min_df: float, max_df: float,
+             n_best_factor: float , pt=0.1, use_PCA = False, lower=False):
     print('Word n-gram range: ', word_range)
     print('Dist n-gram range: ', dist_range)
-    print('Char n_gram raneg: ', char_range)
+    print('Char n_gram range: ', char_range)
     
    
     start_time = time.time()
@@ -213,7 +208,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         ## Word N-gram model (captures content)
         vectorizer_word = TfidfVectorizer(analyzer = 'word', ngram_range = word_range, use_idf = True, 
                                           norm = 'l2', lowercase = lower, vocabulary = vocab_word, 
-                                          smooth_idf = True, sublinear_tf = True)
+                                          min_df= min_df, max_df = max_df, smooth_idf = True, sublinear_tf = True)
         
         train_data_word = vectorizer_word.fit_transform(train_texts).toarray()
         n_best = int(len(vectorizer_word.idf_) * n_best_factor)
@@ -227,7 +222,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         ## non-diacritics n-gram model (captures punctuation and meta-characters)
         vectorizer_char_dist = TfidfVectorizer(analyzer = 'char', ngram_range = dist_range, use_idf = True, 
                                      norm = 'l2', lowercase = lower, vocabulary = vocab_char_dist, 
-                                     min_df = 0.2, max_df = 0.8, smooth_idf = True, 
+                                     min_df = min_df, max_df = max_df, smooth_idf = True, 
                                      sublinear_tf = True)
 
         train_data_char_dist = vectorizer_char_dist.fit_transform(train_texts).toarray()
@@ -243,7 +238,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         ##  Char n-gram model (captures syntactical features)
         vectorizer_char_std = TfidfVectorizer(analyzer = 'char', ngram_range = char_range, use_idf = True, 
                                      norm = 'l2', lowercase = lower, vocabulary = vocab_char_std, 
-                                     min_df = 0.2, max_df = 0.8, smooth_idf = True, 
+                                     min_df = min_df, max_df = max_df, smooth_idf = True, 
                                      sublinear_tf = True)
 
         train_data_char_std = vectorizer_char_std.fit_transform(train_texts).toarray()
@@ -270,35 +265,46 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
             # char std n-gram model 
         scaled_train_data_char = max_abs_scaler.fit_transform(train_data_char_std)
         scaled_test_data_char = max_abs_scaler.transform(test_data_char_std)
-        
-        
-        # PCA
-        
+              
+              
+        # PCA 
         if(use_PCA):
-        
-            pca = PCA(n_components = 0.95)
-            print("Nr of components used: ", )
+            scaler = StandardScaler(with_std = False)
+            pca = PCA(n_components = 0.99)
+            
                 # Word
-            scaled_train_data_word = train_data_word - np.mean(train_data_word, axis=0)
-            scaled_test_data_word = test_data_word - np.mean(train_data_word, axis=0)
-
+            #scaled_train_data_word = scaled_train_data_word - np.mean(scaled_train_data_word, axis=0)
+            #scaled_test_data_word = scaled_test_data_word - np.mean(scaled_train_data_word, axis=0)
+            
+            scaled_train_data_word = scaler.fit_transform(scaled_train_data_word)
+            scaled_test_data_word = scaler.transform(scaled_test_data_word)
+            
             scaled_train_data_word = pca.fit_transform(scaled_train_data_word)
             scaled_test_data_word = pca.transform(scaled_test_data_word)
+            print(scaled_train_data_word.shape)
 
                 # Dist
-            scaled_train_data_dist = train_data_char_dist - np.mean(train_data_char_dist, axis=0)
-            scaled_test_data_dist = test_data_char_dist - np.mean(train_data_char_dist, axis=0)
+            #scaled_train_data_dist = scaled_train_data_dist - np.mean(scaled_train_data_dist, axis=0)
+            #scaled_test_data_dist = scaled_test_data_dist - np.mean(scaled_train_data_dist, axis=0)
 
+            scaled_train_data_dist = scaler.fit_transform(scaled_train_data_dist)
+            scaled_test_data_dist = scaler.transform(scaled_test_data_dist)
+            
             scaled_train_data_dist = pca.fit_transform(scaled_train_data_dist)
             scaled_test_data_dist = pca.transform(scaled_test_data_dist)
+            print(scaled_train_data_dist.shape)
 
                 # Char
-            scaled_train_data_char = train_data_char_std - np.mean(train_data_char_std, axis=0)
-            scaled_test_data_char = test_data_char_std - np.mean(train_data_char_std, axis=0)
+            #scaled_train_data_char = scaled_train_data_char - np.mean(scaled_train_data_char, axis=0)
+            #scaled_test_data_char = scaled_test_data_char - np.mean(scaled_train_data_char, axis=0)
 
+            scaled_train_data_char = scaler.fit_transform(scaled_train_data_char)
+            scaled_test_data_char = scaler.transform(scaled_test_data_char)
+            
             scaled_train_data_char = pca.fit_transform(scaled_train_data_char)
             scaled_test_data_char = pca.transform(scaled_test_data_char)
-        
+            print(scaled_train_data_char.shape)
+
         
         #svd = TruncatedSVD(n_components = 63, algorithm = 'randomized', random_state = 42)
         #scaled_train_data = svd.fit_transform(scaled_train_data)
@@ -306,36 +312,37 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
                 
 
         ## Classification
-        
-        word = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300),cv=5)
+            #WORD
+        word = CalibratedClassifierCV(OneVsRestClassifier(SVC(C=1, kernel ='linear', gamma='auto')), cv=3)
+        #word = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300),cv=5)
         word.fit(scaled_train_data_word, train_labels)
         preds_word = word.predict(scaled_test_data_word)
         probs_word = word.predict_proba(scaled_test_data_word)
         
-        
-        dist = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300),cv=5)
+            #DIST
+        dist = CalibratedClassifierCV(OneVsRestClassifier(SVC(C=1, kernel ='linear', gamma='auto')), cv=3)
+        #dist = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300),cv=5)
         dist.fit(scaled_train_data_dist, train_labels)
         preds_dist = dist.predict(scaled_test_data_dist)
         probs_dist = dist.predict_proba(scaled_test_data_dist)
-        
-        
-        char = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300),cv=5)
+            
+            #CHAR
+        char = CalibratedClassifierCV(OneVsRestClassifier(SVC(C=1, kernel ='linear', gamma='auto')),cv=3)
+        #char = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300),cv=5)
         char.fit(scaled_train_data_char, train_labels)
         preds_char = char.predict(scaled_test_data_char)
         probs_char = char.predict_proba(scaled_test_data_char)
-                 
-    
-        
-        
+          
+            # Soft Voting (combines the votes of the 3 individual classifier)
         avg_probs = np.average([probs_word, probs_dist, probs_char], axis = 0)        
         avg_predictions = []
         for text_probs in avg_probs:
             ind_best = np.argmax(text_probs)
             avg_predictions.append(candidates[ind_best])
-            
-                  
-                
-        ensemble = CalibratedClassifierCV(LogisticRegression(random_state=0, solver='lbfgs', multi_class = 'multinomial', max_iter = 300),cv = 5)
+        
+        """
+            #ENSEMBLE    
+        ensemble = LogisticRegression(random_state=0, solver='lbfgs', multi_class = 'multinomial', max_iter = 300)
         ensemble_train = np.concatenate((
                 word.predict_proba(scaled_train_data_word), 
                 dist.predict_proba(scaled_train_data_dist),
@@ -349,38 +356,39 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         ensemble.fit(ensemble_train, train_labels)
         ensemble_predictions = ensemble.predict(ensemble_test)
         ensemble_proba  = ensemble.predict_proba(ensemble_test)
-        
+        """
         
         
         # Reject option (used in open-set cases)
         for i, p in enumerate(preds_word):
             sproba=sorted(probs_word[i],reverse=True)
-            if sproba[0]-sproba[1]<pt:
+            if sproba[0]-sproba[1] < pt or sproba[0] < 0.25:
                 preds_word[i]=u'<UNK>'
                 
         for i, p in enumerate(preds_dist):
             sproba=sorted(probs_dist[i],reverse=True)
-            if sproba[0]-sproba[1]<pt:
+            if sproba[0]-sproba[1] < pt or sproba[0] < 0.25:
                 preds_dist[i]=u'<UNK>'
                 
         for i, p in enumerate(preds_char):
             sproba=sorted(probs_char[i],reverse=True)
-            if sproba[0]-sproba[1]<pt:
+            if sproba[0]-sproba[1] < pt or sproba[0] < 0.25:
                 preds_char[i]=u'<UNK>'
-                        
+        
+        count=0
         for i,p in enumerate(avg_predictions):
             sproba=sorted(avg_probs[i],reverse=True)
-            if sproba[0]-sproba[1]<pt:
+            if sproba[0]-sproba[1] < pt or sproba[0] < 0.25:
                 avg_predictions[i]=u'<UNK>'
-       
-        count=0
+                count=count+1    
+        print('\t',count,'texts left unattributed (by avg)')
+
+        """
         for i,p in enumerate(ensemble_predictions):
             sproba=sorted(ensemble_proba[i],reverse=True)
-            if sproba[0]-sproba[1]<pt:
+            if sproba[0]-sproba[1] < pt or sproba[0] < 0.25: #or pt < abs(sproba[0] - np.mean(sproba)):
                 ensemble_predictions[i]=u'<UNK>'
-                count=count+1
-        print('\t',count,'texts left unattributed (by ensemble)')
-        
+        """
         
         # Saving output data of word classfier
         out_data=[]
@@ -409,15 +417,16 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         with open('char'+os.sep+'answers-'+problem+'.json', 'w') as f:
             json.dump(out_data, f, indent=4)
             
-        # Saving output data of avg
+        # Saving output data of Soft Vote (AVG)
         out_data=[]
         unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
         pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
         for i,v in enumerate(avg_predictions):
             out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
-        with open(output_folder+os.sep+'answers-'+problem+'.json', 'w') as f:
+        with open(output_folder+os.sep+'answers'+problem+'.json', 'w') as f:
             json.dump(out_data, f, indent=4)    
-            
+        
+        """
         # Saving output data of ensemble
         out_data=[]
         unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
@@ -426,7 +435,7 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
             out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
         with open('ensemble'+os.sep+'answers-'+problem+'.json', 'w') as f:
             json.dump(out_data, f, indent=4)
-        
+        """
         
     print()
     print('elapsed time:', time.time() - start_time)
@@ -435,14 +444,32 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
 
 def main():
     
-    # pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_best_factor = 0.3, pt=0.1,use_PCA=False, lower=False):
+    # pipeline(path,
+            #word_range: tuple, 
+            #dist_range: tuple, 
+            #char_range: tuple,
+            #min_df: float, 
+            #max_df: float,
+            #n_best_factor = 0.3, 
+            #pt=0.1, 
+            #use_PCA = False, 
+            #lower=False)
     
     word_range = (1,3)
     dist_range = (1,3)
     char_range = (2,5)
     
     
-    pipeline(collection_folder,word_range, dist_range, char_range,n_best_factor = 0.5, pt=0.1,use_PCA = False, lower=False )
+    pipeline(collection_folder,
+             word_range, 
+             dist_range, 
+             char_range,
+             min_df = 0.2,
+             max_df = 0.8,
+             n_best_factor = 0.5, 
+             pt=0.1,
+             use_PCA = False, 
+             lower=False )
      
     print("\nResults for Word based classifier: ")
     evaluate_all(collection_folder,'word',evaluation_folder)
@@ -456,9 +483,10 @@ def main():
     print("\nResults for avg: ")
     evaluate_all(collection_folder,output_folder,evaluation_folder)
     
+    """
     print("\nResults for Ensemble: ")
     evaluate_all(collection_folder,'ensemble',evaluation_folder)
-
+    """
 
 if __name__ == '__main__':
     main()
