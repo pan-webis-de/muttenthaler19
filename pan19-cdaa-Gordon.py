@@ -45,23 +45,6 @@ evaluation_folder = 'evaluation'
 
 
 
-def represent_text(text,n):
-    """
-    Extracts all character 'n'-grams from a given 'text'.
-    Each digit is represented as a hashtag symbol (#) which in general denotes any number.
-    Each hyperlink is replaced by an @ sign.
-    The latter steps are computed through regular expressions.
-    """    
-    if n > 0:
-        text = re.sub("[0-9]+(([.,^])[0-9]+)?", "#", text)
-        text = re.sub("https:\\\+([a-zA-Z0-9.]+)?", "@", text)
-        tokens = [text[i:i+n] for i in range(len(text)-n+1)]
-    
-    # create frequency text representation (keys are tokens, values are their corresponding frequencies)
-    frequency = {token: tokens.count(token) for token in list(set(tokens))}
-        
-    return frequency
-
 def read_files(path,label):
     # Reads all text files located in the 'path' and assigns them to 'label' class
     files = glob.glob(path+os.sep+label+os.sep+'*.txt')
@@ -167,7 +150,7 @@ def extend_vocabulary(n_tuple: tuple, texts: list, model: str):
         vocab.extend(n_vocab)
     return vocab
 
-def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_best_factor = 0.3, pt=0.1, lower=False):
+def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_best_factor = 0.3, pt=0.1, use_PCA = False, lower=False):
     print('Word n-gram range: ', word_range)
     print('Dist n-gram range: ', dist_range)
     print('Char n_gram raneg: ', char_range)
@@ -291,28 +274,30 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
         
         # PCA
         
-        pca = PCA(n_components = 63)
+        if(use_PCA):
         
-            # Word
-        scaled_train_data_word = train_data_word - np.mean(train_data_word, axis=0)
-        scaled_test_data_word = test_data_word - np.mean(train_data_word, axis=0)
-        
-        scaled_train_data_word = pca.fit_transform(scaled_train_data_word)
-        scaled_test_data_word = pca.transform(scaled_test_data_word)
-        
-            # Dist
-        scaled_train_data_dist = train_data_char_dist - np.mean(train_data_char_dist, axis=0)
-        scaled_test_data_dist = test_data_char_dist - np.mean(train_data_char_dist, axis=0)
-        
-        scaled_train_data_dist = pca.fit_transform(scaled_train_data_dist)
-        scaled_test_data_dist = pca.transform(scaled_test_data_dist)
-        
-            # Char
-        scaled_train_data_char = train_data_char_std - np.mean(train_data_char_std, axis=0)
-        scaled_test_data_char = test_data_char_std - np.mean(train_data_char_std, axis=0)
-        
-        scaled_train_data_char = pca.fit_transform(scaled_train_data_char)
-        scaled_test_data_char = pca.transform(scaled_test_data_char)
+            pca = PCA(n_components = 0.95)
+            print("Nr of components used: ", )
+                # Word
+            scaled_train_data_word = train_data_word - np.mean(train_data_word, axis=0)
+            scaled_test_data_word = test_data_word - np.mean(train_data_word, axis=0)
+
+            scaled_train_data_word = pca.fit_transform(scaled_train_data_word)
+            scaled_test_data_word = pca.transform(scaled_test_data_word)
+
+                # Dist
+            scaled_train_data_dist = train_data_char_dist - np.mean(train_data_char_dist, axis=0)
+            scaled_test_data_dist = test_data_char_dist - np.mean(train_data_char_dist, axis=0)
+
+            scaled_train_data_dist = pca.fit_transform(scaled_train_data_dist)
+            scaled_test_data_dist = pca.transform(scaled_test_data_dist)
+
+                # Char
+            scaled_train_data_char = train_data_char_std - np.mean(train_data_char_std, axis=0)
+            scaled_test_data_char = test_data_char_std - np.mean(train_data_char_std, axis=0)
+
+            scaled_train_data_char = pca.fit_transform(scaled_train_data_char)
+            scaled_test_data_char = pca.transform(scaled_test_data_char)
         
         
         #svd = TruncatedSVD(n_components = 63, algorithm = 'randomized', random_state = 42)
@@ -450,14 +435,14 @@ def pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_bes
 
 def main():
     
-    # pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_best_factor = 0.3, pt=0.1, lower=False):
+    # pipeline(path,word_range: tuple, dist_range: tuple, char_range: tuple, n_best_factor = 0.3, pt=0.1,use_PCA=False, lower=False):
     
     word_range = (1,3)
     dist_range = (1,3)
     char_range = (2,5)
     
     
-    pipeline(collection_folder,word_range, dist_range, char_range,n_best_factor = 0.4, pt=0.1, lower=False )
+    pipeline(collection_folder,word_range, dist_range, char_range,n_best_factor = 0.5, pt=0.1,use_PCA = False, lower=False )
      
     print("\nResults for Word based classifier: ")
     evaluate_all(collection_folder,'word',evaluation_folder)
