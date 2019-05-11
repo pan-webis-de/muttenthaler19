@@ -26,7 +26,7 @@ import time
 import codecs
 import re
 import numpy as np
-from collections import defaultdict
+
 from sklearn.svm import SVC
 from sklearn.multiclass import OneVsRestClassifier
 from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
@@ -35,6 +35,7 @@ from sklearn.calibration import CalibratedClassifierCV
 from sklearn.decomposition import PCA, TruncatedSVD
 from sklearn.linear_model import LogisticRegression
 from sklearn.preprocessing import normalize, StandardScaler
+
 from pan19_cdaa_evaluator import evaluate_all
 
 
@@ -142,7 +143,7 @@ def extend_vocabulary(n_tuple: tuple, texts: list, model: str):
         vocab.extend(n_vocab)
     return vocab
 
-def pipeline(path,
+def pipeline(path,outpath,
              word_range: tuple, dist_range: tuple, char_range: tuple,
              min_df: float, max_df: float,
              n_best_factor: float , pt=0.1, use_PCA = False, lower=False):
@@ -444,6 +445,20 @@ def pipeline(path,
 
 def main():
     
+    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(description='PAN-19 Baseline Authorship Attribution Method')
+    parser.add_argument('-i', type=str, help='Path to the main folder of a collection of attribution problems')
+    parser.add_argument('-o', type=str, help='Path to an output folder')
+    
+    args = parser.parse_args()
+    if not args.i:
+        print('ERROR: The input folder is required')
+        parser.exit(1)
+    if not args.o:
+        print('ERROR: The output folder is required')
+        parser.exit(1)
+        
+    
     # pipeline(path,
             #word_range: tuple, 
             #dist_range: tuple, 
@@ -459,8 +474,10 @@ def main():
     dist_range = (1,3)
     char_range = (2,5)
     
-    
+    collection_folder = args.i
+    output_folder = args.o
     pipeline(collection_folder,
+             output_folder,
              word_range, 
              dist_range, 
              char_range,
