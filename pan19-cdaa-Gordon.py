@@ -15,6 +15,8 @@
      > python pan19-cdaa-baseline.py -i "mydata/pan19-cdaa-development-corpus" -o "mydata/pan19-answers"
 """
 
+
+
 from __future__ import print_function
 import os
 import glob
@@ -31,6 +33,17 @@ from sklearn.feature_extraction.text import CountVectorizer, TfidfVectorizer
 from sklearn import preprocessing
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.decomposition import PCA, TruncatedSVD
+from sklearn.linear_model import LogisticRegression
+
+from pan19_cdaa_evaluator import evaluate_all
+
+
+
+collection_folder = 'cross-domain-authorship-attribution-train'
+output_folder = 'answers_gordon'
+evaluation_folder = 'evaluation'
+
+
 
 def represent_text(text,n):
     """
@@ -75,7 +88,12 @@ def extract_vocabulary(texts,n,ft=3):
             vocabulary.append(i)
     return vocabulary
 
-def pipeline(path,outpath,n_range=3,pt=0.1, lowercase=False):
+def pipeline(path,n_start = 2, n_range=3,n_best_factor = 0.3, pt=0.1, lowercase=False):
+    print('n-gram range %d - %d' % (n_start,n_range))
+    #print('word-gram range %d - %d' %(word_gram_start, word_gram_range))
+    
+    
+    
     start_time = time.time()
     # Reading information about the collection
     infocollection = path+os.sep+'collection-info.json'
@@ -88,7 +106,7 @@ def pipeline(path,outpath,n_range=3,pt=0.1, lowercase=False):
 
     for index,problem in enumerate(problems):
         print(problem)
-        
+        print(language[index])
         # Reading information about the problem
         infoproblem = path+os.sep+problem+os.sep+'problem-info.json'
         candidates = []
@@ -108,93 +126,181 @@ def pipeline(path,outpath,n_range=3,pt=0.1, lowercase=False):
         # Builds the vocabulary for all n-Grams in between [2, n_range]
         # It discards n-Grams that do not occur frequently enough 
         vocab = []
-        for n in range(2, n_range + 1):
+        for n in range(n_start, n_range + 1):
             vocabulary = extract_vocabulary(train_texts,n, (n_range-n)+1)
             vocab.extend(vocabulary)
 
+        
             # Creates the BoW weighted by TF-IDF    #max_df = 0.9, min_df = 0.1
-        vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(2,n_range),use_idf = True, lowercase=lowercase,vocabulary=vocab, norm='l2')
+        vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(n_start,n_range), use_idf = True, sublinear_tf = True, lowercase=lowercase,vocabulary=vocab, norm='l2')
         train_data = vectorizer.fit_transform(train_texts)
         
         
-        n_best = int(len(vectorizer.idf_) * 0.25)
+        
+        n_best = int(len(vectorizer.idf_) * n_best_factor)
         indexes = np.argsort(vectorizer.idf_)[:n_best]
         train_data = train_data[:,indexes]
         
-            # Reduce the dimensionality of the data to x % of the training data
-            #n_components= int(len(vocab) * 0.1)
-        #SVD = TruncatedSVD(50, random_state = 42)
-        #train_data = SVD.fit_transform(train_data)
-
+            
             # Prints out statistics about each training text
         
         print('\t', len(candidates), 'candidate authors')
         print('\t', len(train_texts), 'known texts')
         print('\t', 'vocabulary size:', len(vocab))
         
-        # Building test set
+            # Building test set
         test_docs = read_files(path+os.sep+problem,unk_folder)
         test_texts = [text for i,(text,label) in enumerate(test_docs)]
         
         test_data = vectorizer.transform(test_texts)
-        #test_data = SVD.transform(test_data)
-        
-        # Prints out the nr of test texts
+        test_data = test_data[:,indexes]
+
+            # Prints out the nr of test texts
         print('\t', len(test_texts), 'unknown texts')
         
-        test_data = test_data[:,indexes]
         
         # preprocessing 
-        
-        
-        # Some preprocessing that we dont need
-        #for i,v in enumerate(train_texts):
-        #   train_data[i]=train_data[i]/len(train_texts[i])
-        #for i,v in enumerate(test_texts):
-        #    test_data[i]=test_data[i]/len(test_texts[i])
-        
-        
-        
+                
         max_abs_scaler = preprocessing.MaxAbsScaler()
         scaled_train_data = max_abs_scaler.fit_transform(train_data)
         scaled_test_data = max_abs_scaler.transform(test_data)
+        
+        
+        # LSA 
+        
+        #svd = TruncatedSVD(n_components = 63, algorithm = 'randomized', random_state = 42)
+        #scaled_train_data = svd.fit_transform(scaled_train_data)
+        #scaled_test_data = svd.transform(scaled_test_data)
+                
 
         # Applying SVM     # Maybe change to ensemble logistic classifier
         
-        clf=CalibratedClassifierCV(OneVsRestClassifier(SVC(C=1, gamma='auto')))
+        lgr = LogisticRegression(random_state=0, solver='lbfgs', multi_class='multinomial', max_iter = 300)
+        svc = OneVsRestClassifier(SVC(C=1, gamma='auto'))
+
+      
+        clf=CalibratedClassifierCV(lgr, cv = 5)  
         clf.fit(scaled_train_data, train_labels)
         predictions=clf.predict(scaled_test_data)
         proba=clf.predict_proba(scaled_test_data)
+
+        
+        clf2 = CalibratedClassifierCV(svc, cv = 5)
+        clf2.fit(scaled_train_data, train_labels)
+        predictions2 = clf2.predict(scaled_test_data)
+        proba2 = clf2.predict_proba(scaled_test_data)
+        
+        
+        
+        avg_proba = np.average([proba, proba2], axis = 0)        
+        avg_predictions = []
+        for text_probas in avg_proba:
+            ind_best = np.argmax(text_probas)
+            avg_predictions.append(candidates[ind_best])
+            
+                  
+        ensemble = LogisticRegression(random_state=0, solver='lbfgs', multi_class = 'multinomial', max_iter = 300)
+        
+        ensemble_train = np.concatenate(
+            (clf.predict_proba(scaled_train_data), clf2.predict_proba(scaled_train_data)), axis = 1)        
+        ensemble_test = np.concatenate((proba, proba2), axis = 1)       
+        ensemble.fit(ensemble_train, train_labels)
+        ensemble_predictions = ensemble.predict(ensemble_test)
+        ensemble_proba  = ensemble.predict_proba(ensemble_test)
+        
+        
+        #print(predictions[:5])
+        #print(predictions2[:5])
+        #print(avg_predictions[:5])
+        #print(ensemble_predictions[:5])
+        
+        
+        
         
         # Reject option (used in open-set cases)
         count=0
+        
         for i,p in enumerate(predictions):
+            sproba=sorted(avg_proba[i],reverse=True)
+            if sproba[0]-sproba[1]<pt:
+                avg_predictions[i]=u'<UNK>'
+                
+        for i,p in enumerate(predictions2):
             sproba=sorted(proba[i],reverse=True)
             if sproba[0]-sproba[1]<pt:
-                predictions[i]=u'<UNK>'
-                count=count+1
-        print('\t',count,'texts left unattributed')
+                avg_predictions[i]=u'<UNK>'
+                
+        for i,p in enumerate(avg_predictions):
+            sproba=sorted(proba2[i],reverse=True)
+            if sproba[0]-sproba[1]<pt:
+                avg_predictions[i]=u'<UNK>'
         
-        # Saving output data
+        for i,p in enumerate(ensemble_predictions):
+            sproba=sorted(ensemble_proba[i],reverse=True)
+            if sproba[0]-sproba[1]<pt:
+                avg_predictions[i]=u'<UNK>'
+                count=count+1
+        
+        print('\t',count,'texts left unattributed (by ensemble)')
+        
+        
+        # Saving output data of clf 1
         out_data=[]
         unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
         pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
         for i,v in enumerate(predictions):
             out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
-        with open(outpath+os.sep+'answers-'+problem+'.json', 'w') as f:
+        with open('classifier1'+os.sep+'answers-'+problem+'.json', 'w') as f:
             json.dump(out_data, f, indent=4)
-        print('\t', 'answers saved to file','answers-'+problem+'.json')
+            
+        # Saving output data of clf 2
+        out_data=[]
+        unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
+        pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
+        for i,v in enumerate(predictions2):
+            out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
+        with open('classifier2'+os.sep+'answers-'+problem+'.json', 'w') as f:
+            json.dump(out_data, f, indent=4)
+            
+        # Saving output data of avg
+        out_data=[]
+        unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
+        pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
+        for i,v in enumerate(avg_predictions):
+            out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
+        with open(output_folder+os.sep+'answers-'+problem+'.json', 'w') as f:
+            json.dump(out_data, f, indent=4)    
+            
+        # Saving output data of ensemble
+        out_data=[]
+        unk_filelist = glob.glob(path+os.sep+problem+os.sep+unk_folder+os.sep+'*.txt')
+        pathlen=len(path+os.sep+problem+os.sep+unk_folder+os.sep)
+        for i,v in enumerate(ensemble_predictions):
+            out_data.append({'unknown-text': unk_filelist[i][pathlen:], 'predicted-author': v})
+        with open('ensemble'+os.sep+'answers-'+problem+'.json', 'w') as f:
+            json.dump(out_data, f, indent=4)
+        
+        
+    
+    
     print('elapsed time:', time.time() - start_time)
 
 
 
-
-collection_folder = 'cross-domain-authorship-attribution-train'
-output_folder = 'answers_gordon'
-
 def main():
-    pipeline(collection_folder,output_folder, n_range = 5,pt=0.1 )
+    pipeline(collection_folder,n_start = 2, n_range = 5,n_best_factor = 0.25, pt=0.1, lowercase=False )
+     
+    print("\nResults for classifier 1 (LGR): ")
+    evaluate_all(collection_folder,'classifier1',evaluation_folder)
 
+    print("\nResults for classifier 2 (SVM): ")
+    evaluate_all(collection_folder,'classifier2',evaluation_folder)
+
+    print("\nResults for avg: ")
+    evaluate_all(collection_folder,output_folder,evaluation_folder)
+    
+    print("\nResults for Ensemble: ")
+    evaluate_all(collection_folder,'ensemble',evaluation_folder)
 
 
 if __name__ == '__main__':
