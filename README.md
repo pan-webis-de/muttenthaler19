@@ -2,6 +2,8 @@
 
 If you would like to use parts of the code or replicate our approach, please cite us! :) 
 
+Authors: Lukas Muttenthaler, Gordon Lucas, Janek Amann.
+
 Authorship  Attribution  (AA)  is  the  task  ofdetermining the author of a text from a set ofcandidates.  It requires text features to be rep-resented  according  to  rigorous  experiments.In  the  context  of  machine  learning,  AA  canbe   regarded   as   a   multi-class,   single-labeltext  classification  problem.    Its  applications include   plagiarism   detection   and   forensic linguistics as well as research in literature.  
 
 In the current study,  we aimed to develop three different n-gram models to identify authors of various fan-fictional texts.   Each of the three models  was  developed  as  a  variable-length n-gram model.  We implemented both a standard  character n-gram  model  (2−5 gram), 
