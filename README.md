@@ -1,6 +1,6 @@
-# Authorship Attribution in Fan-Fictional Texts given Variable LengthCharacter and Word N-Grams
+# Authorship Attribution in Fan-Fictional Texts given variable length Character and Word N-Grams
 
-If you would like to you parts of this code or replicate our approach, please cite us! :) 
+If you would like to use parts of the code or replicate our approach, please cite us! :) 
 
 Authorship  Attribution  (AA)  is  the  task  ofdetermining the author of a text from a set ofcandidates.  It requires text features to be rep-resented  according  to  rigorous  experiments.In  the  context  of  machine  learning,  AA  canbe   regarded   as   a   multi-class,   single-labeltext  classification  problem.    Its  applications include   plagiarism   detection   and   forensic linguistics as well as research in literature.  
 
